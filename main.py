@@ -24,6 +24,38 @@ async def start(user_input=None, output_dir=None):
     try:
         sandbox = Sandbox()
 
+        # Pre-install inkbox SDK and configure API key in sandbox
+        inkbox_api_key = os.getenv("INKBOX_API_KEY")
+        if inkbox_api_key:
+            print("Installing Python 3.11 and inkbox SDK in sandbox...")
+            sandbox.commands.run("sudo apt-get update -qq && sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev > /dev/null 2>&1", timeout=120)
+            sandbox.commands.run("curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11", timeout=60)
+            sandbox.commands.run("python3.11 -m pip install inkbox", timeout=120)
+            sandbox.commands.run(f"echo 'export INKBOX_API_KEY={inkbox_api_key}' >> ~/.bashrc")
+            print("Inkbox SDK installed (use python3.11 to run scripts).")
+
+            # Create inkbox identity and mailbox inside the sandbox
+            print("Setting up inkbox identity...")
+            setup_script = "\n".join([
+                "import os",
+                "from inkbox import Inkbox",
+                f'os.environ["INKBOX_API_KEY"] = "{inkbox_api_key}"',
+                'with Inkbox(api_key=os.environ["INKBOX_API_KEY"]) as inkbox:',
+                '    try:',
+                '        identity = inkbox.get_identity("computer-use-bot")',
+                '    except Exception:',
+                '        identity = inkbox.create_identity("computer-use-bot")',
+                '    if not identity.mailbox:',
+                '        identity.create_mailbox(display_name="Computer Use Bot")',
+                '        identity.refresh()',
+                '    print(f"Identity ready: {identity.agent_handle}")',
+                '    if identity.mailbox:',
+                '        print(f"Mailbox: {identity.mailbox.email_address}")',
+            ])
+            sandbox.files.write("/tmp/setup_inkbox.py", setup_script)
+            result = sandbox.commands.run("python3.11 /tmp/setup_inkbox.py", timeout=30)
+            print(result.stdout.strip() if result.stdout else "Inkbox identity ready.")
+
         # The display server won't work on desktop-dev-v2 since ffmpeg is not installed
         #client = DisplayClient(output_dir)
         #print("Starting the display server...")
