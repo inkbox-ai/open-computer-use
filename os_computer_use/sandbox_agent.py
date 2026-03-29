@@ -118,6 +118,10 @@ class SandboxAgent:
     def click_element(self, query, click_command, action_name="click"):
         """Base method for all click operations"""
         self.screenshot()
+        if grounding_model is None:
+            # No grounding model available — ask the action model to provide coordinates
+            logger.log(f"{action_name} (no grounding model, skipping element location)", "gray")
+            return f"Error: grounding model is not available. Please use run_command, type_text, or send_key instead of click actions."
         position = grounding_model.call(query, self.latest_screenshot)
         dot_image = draw_big_dot(Image.open(self.latest_screenshot), position)
         filepath = self.save_image(dot_image, "location")
