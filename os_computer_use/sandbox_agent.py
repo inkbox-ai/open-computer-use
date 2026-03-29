@@ -22,10 +22,11 @@ tools = {
 
 class SandboxAgent:
 
-    def __init__(self, sandbox, output_dir=".", save_logs=True):
+    def __init__(self, sandbox, output_dir=".", save_logs=True, inkbox_context=None):
         super().__init__()
         self.messages = []  # Agent memory
         self.sandbox = sandbox  # E2B sandbox
+        self.inkbox_context = inkbox_context
         self.latest_screenshot = None  # Most recent PNG of the screen
         self.image_counter = 0  # Current screenshot number
         self.tmp_dir = tempfile.mkdtemp()  # Folder to store screenshots
@@ -178,10 +179,37 @@ class SandboxAgent:
             # Stop the sandbox from timing out
             self.sandbox.set_timeout(60)
 
+            system_prompt = "You are an AI assistant with computer use abilities."
+            if self.inkbox_context:
+                handle = self.inkbox_context['identity_handle']
+                email = self.inkbox_context.get('email_address', 'unknown')
+                system_prompt = f"""You are an AI assistant with computer use abilities.
+
+CRITICAL — INKBOX INSTRUCTIONS (read before doing anything):
+When asked to use inkbox, you MUST use the run_command tool to execute a Python script. inkbox is a Python library. It is NOT a website, NOT a desktop app, NOT a CLI tool. Do NOT open a browser. Do NOT click on any icons. Do NOT search for "inkbox" in any menu.
+
+The ONLY correct way to use inkbox:
+1. Use run_command to write a Python script to /tmp/inkbox_task.py
+2. Use run_command to execute: python3.11 /tmp/inkbox_task.py
+
+Identity "{handle}" with mailbox {email} is already configured.
+The API key is stored at /tmp/.inkbox_api_key (read it in your script).
+
+Send email example (use run_command with this exact pattern):
+cat > /tmp/inkbox_task.py << 'PYEOF'
+from inkbox import Inkbox
+api_key = open("/tmp/.inkbox_api_key").read().strip()
+with Inkbox(api_key=api_key) as inkbox:
+    identity = inkbox.get_identity("{handle}")
+    identity.send_email(to=["recipient@example.com"], subject="Hello", body_text="Hi there")
+    print("Email sent!")
+PYEOF
+python3.11 /tmp/inkbox_task.py"""
+
             content, tool_calls = action_model.call(
                 [
                     Message(
-                        "You are an AI assistant with computer use abilities.",
+                        system_prompt,
                         role="system",
                     ),
                     *self.messages,

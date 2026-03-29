@@ -26,12 +26,14 @@ async def start(user_input=None, output_dir=None):
 
         # Pre-install inkbox SDK and configure API key in sandbox
         inkbox_api_key = os.getenv("INKBOX_API_KEY")
+        inkbox_context = None
         if inkbox_api_key:
             print("Installing Python 3.11 and inkbox SDK in sandbox...")
             sandbox.commands.run("sudo apt-get update -qq && sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev > /dev/null 2>&1", timeout=120)
             sandbox.commands.run("curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11", timeout=60)
             sandbox.commands.run("python3.11 -m pip install inkbox", timeout=120)
             sandbox.commands.run(f"echo 'export INKBOX_API_KEY={inkbox_api_key}' >> ~/.bashrc")
+            sandbox.files.write("/tmp/.inkbox_api_key", inkbox_api_key)
             print("Inkbox SDK installed (use python3.11 to run scripts).")
 
             # Create inkbox identity and mailbox inside the sandbox
@@ -56,6 +58,12 @@ async def start(user_input=None, output_dir=None):
             result = sandbox.commands.run("python3.11 /tmp/setup_inkbox.py", timeout=30)
             print(result.stdout.strip() if result.stdout else "Inkbox identity ready.")
 
+            inkbox_context = {"identity_handle": "computer-use-bot"}
+            if result and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    if line.startswith("Mailbox: "):
+                        inkbox_context["email_address"] = line[len("Mailbox: "):]
+
         # The display server won't work on desktop-dev-v2 since ffmpeg is not installed
         #client = DisplayClient(output_dir)
         #print("Starting the display server...")
@@ -64,7 +72,8 @@ async def start(user_input=None, output_dir=None):
         # If the display client is opened before the stream is ready, it will close immediately
         #await client.start(stream_url, user_input or "Sandbox", delay=5)
 
-        agent = SandboxAgent(sandbox, output_dir)
+        inkbox_ctx = inkbox_context if inkbox_api_key else None
+        agent = SandboxAgent(sandbox, output_dir, inkbox_context=inkbox_ctx)
 
         print("Starting the VNC server...")
         sandbox.stream.start()
