@@ -7,6 +7,7 @@ from os_computer_use.llm_provider import (
 )
 from os_computer_use.osatlas_provider import OSAtlasProvider
 from os_computer_use.showui_provider import ShowUIProvider
+from os_computer_use.openai_grounding_provider import OpenAIGroundingProvider
 
 # Load environment variables from .env file
 load_dotenv()

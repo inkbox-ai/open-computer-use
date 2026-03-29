@@ -4,6 +4,7 @@ from os_computer_use.sandbox_agent import SandboxAgent
 from os_computer_use.logging import Logger
 import asyncio
 import argparse
+import uuid
 
 import os
 from dotenv import load_dotenv
@@ -24,6 +25,47 @@ async def start(user_input=None, output_dir=None):
     try:
         sandbox = Sandbox()
 
+        # Pre-install inkbox SDK and configure API key in sandbox
+        inkbox_context = None
+        inkbox_api_key = os.getenv("INKBOX_API_KEY")
+        if inkbox_api_key:
+            print("Installing Python 3.11 and inkbox SDK in sandbox...")
+            sandbox.commands.run("sudo apt-get update -qq && sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev > /dev/null 2>&1", timeout=120)
+            sandbox.commands.run("curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11", timeout=60)
+            sandbox.commands.run("python3.11 -m pip install inkbox", timeout=120)
+            sandbox.commands.run(f"echo 'export INKBOX_API_KEY={inkbox_api_key}' >> ~/.bashrc")
+            sandbox.commands.run(f"echo 'export INKBOX_API_KEY={inkbox_api_key}' >> ~/.profile")
+            print("Inkbox SDK installed (use python3.11 to run scripts).")
+
+            # Create inkbox identity and mailbox inside the sandbox
+            print("Setting up inkbox identity...")
+            handle = f"ocu-{uuid.uuid4().hex[:8]}"
+            setup_script = "\n".join([
+                "import os",
+                "from inkbox import Inkbox",
+                f'os.environ["INKBOX_API_KEY"] = "{inkbox_api_key}"',
+                'with Inkbox(api_key=os.environ["INKBOX_API_KEY"]) as inkbox:',
+                f'    identity = inkbox.create_identity("{handle}", create_mailbox=True)',
+                '    print(f"Identity ready: {identity.agent_handle}")',
+                '    if identity.mailbox:',
+                '        print(f"Mailbox: {identity.mailbox.email_address}")',
+            ])
+            sandbox.files.write("/tmp/setup_inkbox.py", setup_script)
+            result = sandbox.commands.run("python3.11 /tmp/setup_inkbox.py", timeout=30)
+            stdout = result.stdout.strip() if result.stdout else ""
+            print(stdout or "Inkbox identity ready.")
+
+            # Extract mailbox email from setup output
+            for line in stdout.splitlines():
+                if line.startswith("Mailbox:"):
+                    mailbox_email = line.split(":", 1)[1].strip()
+                    inkbox_context = {
+                        "agent_handle": handle,
+                        "mailbox_email": mailbox_email,
+                        "inkbox_api_key_env": "INKBOX_API_KEY",
+                    }
+                    break
+
         # The display server won't work on desktop-dev-v2 since ffmpeg is not installed
         #client = DisplayClient(output_dir)
         #print("Starting the display server...")
@@ -32,7 +74,7 @@ async def start(user_input=None, output_dir=None):
         # If the display client is opened before the stream is ready, it will close immediately
         #await client.start(stream_url, user_input or "Sandbox", delay=5)
 
-        agent = SandboxAgent(sandbox, output_dir)
+        agent = SandboxAgent(sandbox, output_dir, inkbox_context=inkbox_context)
 
         print("Starting the VNC server...")
         sandbox.stream.start()
